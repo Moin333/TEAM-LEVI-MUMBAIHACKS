@@ -1,12 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
-import { Infinity as InfinityIcon } from 'lucide-react';
-import MessageBubble from './MessageBubble';
+import { Infinity as InfinityIcon, Sparkles } from 'lucide-react';
+import MessageBubble, { type Message } from './MessageBubble';
 import InputPanel from './InputPanel';
 import { useUIStore } from '../../store/uiStore';
 
 const ChatInterface: React.FC = () => {
-  const { messages, setRightPanelOpen, isSidebarOpen, isRightPanelOpen, rightPanelWidth } = useUIStore();
+  const {
+    messages,
+    isThinking,
+    processingStep,
+    setRightPanelOpen,
+    isSidebarOpen,
+    isRightPanelOpen,
+    rightPanelWidth
+  } = useUIStore();
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -16,24 +25,25 @@ const ChatInterface: React.FC = () => {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isThinking, processingStep]);
 
   // Function to generate analysis title
-  const getAnalysisTitle = (msg: { title?: string; content?: string }, idx: number): string => {
+  const getAnalysisTitle = (msg: Message, idx: number): string => {
     // Try to get title from message
-    if (msg.title) return msg.title;
-    
+    if (msg.text) return msg.text;
+    if (msg.metadata?.title) return msg.metadata?.title;
+
     // Generate based on content or type
-    if (msg.content) {
-      const content = msg.content.toLowerCase();
-      if (content.includes('forecast')) return 'Demand Forecast Analysis';
-      if (content.includes('inventory')) return 'Inventory Analysis';
-      if (content.includes('supplier')) return 'Supplier Analysis';
-      if (content.includes('shipment')) return 'Shipment Analysis';
-      if (content.includes('sales')) return 'Sales Analysis';
-      if (content.includes('cost')) return 'Cost Analysis';
-    }
-    
+    const content = msg.metadata?.summary?.toLowerCase() || msg.text?.toLowerCase() || '';
+    if (content.includes('forecast')) return 'Demand Forecast Analysis';
+    if (content.includes('inventory')) return 'Inventory Analysis';
+    if (content.includes('supplier')) return 'Supplier Analysis';
+    if (content.includes('shipment')) return 'Shipment Analysis';
+    if (content.includes('sales')) return 'Sales Analysis';
+    if (content.includes('cost')) return 'Cost Analysis';
+    if (content.includes('trend')) return 'Trend Analysis';
+    if (msg.metadata?.agents) return 'Orchestration Plan';
+
     // Default fallback
     return `Analysis ${idx + 1}`;
   };
@@ -43,11 +53,11 @@ const ChatInterface: React.FC = () => {
     const element = messageRefs.current.get(msgId);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      
+
       // Brief highlight effect (safe DOM manipulation)
       element.style.transition = 'box-shadow 0.3s ease';
       element.style.boxShadow = '0 0 0 2px var(--primary-500, #3b82f6)';
-      
+
       setTimeout(() => {
         element.style.boxShadow = '';
       }, 2000);
@@ -57,9 +67,6 @@ const ChatInterface: React.FC = () => {
 
   // Calculate dynamic left offset based on sidebar state
   const leftOffset = isSidebarOpen ? 280 : 72; // Match sidebar widths
-  
-  // Calculate dynamic right offset based on right panel
-  const rightOffset = isRightPanelOpen ? rightPanelWidth : 0;
 
   // --- ZERO STATE (Greeting) ---
   if (messages.length === 0) {
@@ -68,15 +75,15 @@ const ChatInterface: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center p-4">
           <div className="mb-8 text-center animate-fade-in-up">
             <h1 className="text-4xl md:text-5xl font-heading font-medium text-slate-800 dark:text-slate-100 mb-3 flex items-center justify-center gap-4">
-              <InfinityIcon size={48} className="text-primary-500" strokeWidth={2.5} /> 
-              Afternoon, Moin
+              <InfinityIcon size={48} className="text-primary-500" strokeWidth={2.5} />
+              Good Afternoon
             </h1>
             <p className="text-lg text-slate-500 dark:text-slate-400 max-w-md mx-auto">
               Ready to orchestrate your supply chain agents?
             </p>
           </div>
           <div className="w-full max-w-2xl animate-fade-in-up delay-100">
-             <InputPanel isZeroState={true} />
+            <InputPanel isZeroState={true} />
           </div>
         </div>
       </div>
@@ -86,12 +93,12 @@ const ChatInterface: React.FC = () => {
   // --- ACTIVE CHAT STATE ---
   return (
     <div className="flex flex-col h-full relative bg-light-bg dark:bg-dark-bg">
-      
+
       {/* --- FIXED TIMELINE SPINE (Dynamically positioned) --- */}
       {analysisMessages.length > 0 && (
-        <div 
-          className="fixed top-24 z-30 flex flex-col items-center pointer-events-none transition-all duration-300"
-          style={{ 
+        <div
+          className="fixed top-24 z-40 flex flex-col items-center pointer-events-none transition-all duration-300"
+          style={{
             left: `${leftOffset + 32}px`, // 32px padding from sidebar edge
             height: '70vh',
             maxHeight: '700px'
@@ -99,7 +106,7 @@ const ChatInterface: React.FC = () => {
         >
           {/* Vertical connecting line - always visible */}
           <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-primary-200 dark:bg-primary-800" />
-          
+
           {/* Timeline nodes */}
           <div className={clsx(
             "relative flex flex-col h-full py-2 pointer-events-auto",
@@ -118,11 +125,11 @@ const ChatInterface: React.FC = () => {
                   "w-3 h-3 rounded-full transition-all duration-200 relative z-10",
                   "ring-4 ring-light-bg dark:ring-dark-bg",
                   "hover:scale-150 hover:ring-2 cursor-pointer",
-                  msg.status === 'processing' 
-                    ? "bg-primary-500 animate-pulse" 
+                  msg.status === 'processing'
+                    ? "bg-primary-500 animate-pulse"
                     : msg.status === 'failed'
-                    ? "bg-red-500"
-                    : "bg-primary-500"
+                      ? "bg-red-500"
+                      : "bg-primary-500"
                 )}>
                   {/* Active pulse for processing */}
                   {msg.status === 'processing' && (
@@ -152,11 +159,11 @@ const ChatInterface: React.FC = () => {
       {/* Scrollable chat messages */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-8">
         <div className="max-w-3xl mx-auto relative">
-          
+
           {messages.map((msg, index) => (
-            <div 
-              key={msg.id} 
-              ref={(el) => { 
+            <div
+              key={msg.id}
+              ref={(el) => {
                 if (el) {
                   messageRefs.current.set(msg.id, el);
                 } else {
@@ -165,13 +172,25 @@ const ChatInterface: React.FC = () => {
               }}
               className="relative fade-in mb-6 transition-all duration-300 rounded-lg"
             >
-              <MessageBubble 
-                message={msg} 
-                isLast={index === messages.length - 1} 
+              <MessageBubble
+                message={msg}
+                isLast={index === messages.length - 1}
               />
             </div>
           ))}
-          
+
+          {/* Thinking Indicator */}
+          {isThinking && (
+            <div className="flex items-center gap-3 mb-6 animate-pulse ml-2">
+              <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary-400 to-accent-teal flex items-center justify-center shadow-lg shadow-primary-500/20">
+                <Sparkles size={16} className="text-white animate-spin-slow" />
+              </div>
+              <div className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-accent-teal">
+                {processingStep || "Orchestrator is thinking..."}
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} className="h-4" />
         </div>
       </div>

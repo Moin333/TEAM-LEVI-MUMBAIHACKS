@@ -1,18 +1,24 @@
 import React from 'react';
 import { clsx } from 'clsx';
-import { BrainCircuit, Clock, ArrowRight } from 'lucide-react';
+import { BrainCircuit, Clock, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useUIStore } from '../../store/uiStore';
 
+// 👇 CRITICAL: Ensure 'export' is here
 export interface Message {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   timestamp: string;
-  type?: 'text' | 'analysis';
+  type: 'text' | 'analysis' | 'agent_result'; // Added agent_result to type definition
   status?: 'processing' | 'completed' | 'failed';
   metadata?: {
     agents?: string[];
     progress?: number;
+    data?: any;
+    agent?: string; // Added agent name field
+    summary?: string;
+    success?: boolean; // Added success field
+    error?: string; // Added error field
   };
 }
 
@@ -23,66 +29,120 @@ interface MessageBubbleProps {
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   const isUser = message.sender === 'user';
-  const { setRightPanelOpen } = useUIStore();
+  const { setSelectedAgent, setRightPanelOpen } = useUIStore();
 
-  // Render Analysis Card (Interactive Artifact)
-  if (message.type === 'analysis') {
+  // --- ARTIFACT CARD RENDERER (For Plans & Results) ---
+  // We treat 'agent_result' and 'analysis' similarly for the card view
+  if (message.type === 'analysis' || message.type === 'agent_result') {
+    
+    // Determine if this is a high-level PLAN or a specific RESULT based on metadata
+    const isPlan = !!message.metadata?.agents; 
+    const isResult = !!message.metadata?.data;
+
     return (
-      <div className="mb-8 max-w-[85%]"> {/* Increased margin for visual separation */}
+      <div className="mb-8 max-w-[85%] animate-fade-in-up">
+        {/* Label above the card */}
         <div className="flex items-center text-xs font-bold text-slate-500 mb-2 ml-1 uppercase tracking-wider">
           <BrainCircuit size={14} className="mr-2" />
-          AI Orchestrator
+          {isPlan ? "Orchestrator Plan" : message.metadata?.agent || "Agent Artifact"}
         </div>
         
-        {/* Interactive Card */}
+        {/* The Card Itself */}
         <div 
-          onClick={() => setRightPanelOpen(true)}
-          className="group relative bg-white dark:bg-[#212121] border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm hover:shadow-md hover:border-primary-300 dark:hover:border-primary-700 transition-all cursor-pointer overflow-hidden"
+          onClick={() => {
+             if (isResult) {
+                 // 1. Open specific agent detail view
+                 setSelectedAgent(message.metadata?.agent || null); 
+                 setRightPanelOpen(true);
+             } else if (isPlan) {
+                 // 2. Open workflow overview
+                 setSelectedAgent(null); 
+                 setRightPanelOpen(true);
+             }
+          }}
+          className={clsx(
+            "group relative bg-white dark:bg-[#212121] border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm transition-all overflow-hidden",
+            // Add hover effects only if it's clickable (Plan or Result)
+            (isResult || isPlan) 
+              ? "hover:shadow-md hover:border-primary-300 dark:hover:border-primary-700 cursor-pointer" 
+              : ""
+          )}
         >
-          {/* Left Accent Bar */}
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent-amber group-hover:bg-primary-500 transition-colors" />
+          {/* Status Bar Indicator (Left Border) */}
+          <div className={clsx(
+            "absolute left-0 top-0 bottom-0 w-1 transition-colors",
+            message.status === 'processing' ? "bg-accent-amber" : 
+            message.status === 'failed' ? "bg-red-500" : "bg-accent-teal"
+          )} />
 
           <div className="p-5 pl-6">
             <div className="flex justify-between items-start mb-3">
               <div>
+                {/* Title */}
                 <h4 className="font-heading font-semibold text-lg text-slate-800 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                   {message.text}
                 </h4>
+                {/* Subtitle / Summary */}
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Click to view agent execution pipeline
+                  {isPlan 
+                    ? "Executing agent workflow..." 
+                    : message.metadata?.summary || "Click to view detailed analysis"
+                  }
                 </p>
               </div>
-              <div className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 group-hover:text-primary-500 group-hover:bg-primary-50 dark:group-hover:bg-primary-900/20 transition-colors">
-                <ArrowRight size={18} />
+              
+              {/* Icon: Spinner if processing, Arrow if result, Check if done */}
+              <div className={clsx(
+                "p-1.5 rounded-lg transition-colors",
+                message.status === 'processing' 
+                    ? "bg-amber-50 text-accent-amber" 
+                    : message.status === 'failed'
+                    ? "bg-red-50 text-red-500"
+                    : "bg-teal-50 dark:bg-teal-900/20 text-accent-teal"
+              )}>
+                {message.status === 'processing' ? (
+                    <Clock size={18} className="animate-spin" />
+                ) : (
+                    // Show Arrow for clickable results, Check for completed plans
+                    isResult ? <ArrowRight size={18} /> : <CheckCircle2 size={18} />
+                )}
               </div>
             </div>
             
-            {/* Progress Bar */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs font-medium">
-                <span className="flex items-center text-accent-amber">
-                  <Clock size={14} className="mr-1.5 animate-pulse" />
-                  Processing...
-                </span>
-                <span className="text-slate-600 dark:text-slate-400">{message.metadata?.progress}%</span>
-              </div>
-              
-              <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                <div 
-                  className="bg-accent-amber h-full rounded-full transition-all duration-1000 ease-out relative overflow-hidden"
-                  style={{ width: `${message.metadata?.progress}%` }}
-                >
-                  <div className="absolute inset-0 bg-white/30 w-full h-full animate-[shimmer_1.5s_infinite]"></div>
-                </div>
-              </div>
+            {/* Progress Bar (Visible if Processing OR it is a Plan card) */}
+            {(message.status === 'processing' || isPlan) && (
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs font-medium">
+                        <span className="flex items-center text-slate-500">
+                            {message.status === 'processing' ? "Processing..." : "Workflow Progress"}
+                        </span>
+                        <span className="text-slate-600 dark:text-slate-400">{message.metadata?.progress}%</span>
+                    </div>
+                    
+                    <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                            className={clsx(
+                                "h-full rounded-full transition-all duration-1000 ease-out relative overflow-hidden",
+                                message.status === 'processing' ? "bg-accent-amber" : "bg-accent-teal"
+                            )}
+                            style={{ width: `${message.metadata?.progress}%` }}
+                        >
+                            <div className="absolute inset-0 bg-white/30 w-full h-full animate-[shimmer_1.5s_infinite]"></div>
+                        </div>
+                    </div>
 
-              <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-500 flex items-center gap-2">
-                <span>Agents active:</span>
-                <span className="text-slate-700 dark:text-slate-300 font-medium bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                  {message.metadata?.agents?.join(', ')}
-                </span>
-              </div>
-            </div>
+                    {/* Agent Tags (Only visible on the Plan Card) */}
+                    {isPlan && message.metadata?.agents && (
+                        <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
+                            {message.metadata.agents.map((agent, idx) => (
+                                <span key={idx} className="text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                                    {agent}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
           </div>
         </div>
         <span className="text-[10px] text-slate-400 ml-1 mt-2 block">{message.timestamp}</span>
@@ -90,15 +150,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
     );
   }
 
-  // Render Standard Text Message
+  // --- STANDARD TEXT MESSAGE ---
   return (
-    <div className={clsx("flex w-full mb-6", isUser ? "justify-end" : "justify-start")}>
+    <div className={clsx("flex w-full mb-6 animate-fade-in-up", isUser ? "justify-end" : "justify-start")}>
       <div className={clsx("max-w-[75%] flex flex-col", isUser ? "items-end" : "items-start")}>
         
         {!isUser && (
           <span className="flex items-center text-xs font-bold text-slate-500 mb-1.5 ml-1 uppercase tracking-wider">
             <BrainCircuit size={12} className="mr-1.5" />
-            AI Orchestrator
+            Orchestrator
           </span>
         )}
 
